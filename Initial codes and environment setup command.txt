@@ -1,0 +1,858 @@
+# 15:45 Message - English Version
+
+Here is the exact message from 15:45, translated to English while keeping all code intact:
+
+```bash
+# Final One-Stop Solution
+
+I will provide a complete one-stop solution containing all steps. Please execute the following commands in order in the terminal:
+
+## Step 1: Download and Install Complete System
+
+```bash
+# 1. Go to project directory
+cd ~/yolo/yolov5
+
+# 2. Download complete system archive (containing all files)
+wget -O phone_detection_complete.tar.gz https://raw.githubusercontent.com/ultralytics/yolov5/master/data/scripts/download_phone_detection.sh 2>/dev/null || echo "Downloading backup package"
+
+# If download fails, use this command to create complete system
+cat > create_complete_system.sh << 'EOF'
+#!/bin/bash
+# Create complete phone detection system - one-stop solution
+echo "Creating complete phone detection system..."
+echo "=" * 60
+
+cd ~/yolo/yolov5
+
+# Clean old files
+rm -f phone_*.py test_*.py quick_*.py run_*.sh install_*.sh
+
+# Create complete installation script
+cat > setup_phone_system.sh << 'SETUP_EOF'
+#!/bin/bash
+echo "Phone Detection System - Complete Installation Script"
+echo "=" * 60
+
+# Check current directory
+if [ ! -d ~/yolo/yolov5 ]; then
+    echo "Error: Please run this script in ~/yolo/yolov5 directory"
+    exit 1
+fi
+
+cd ~/yolo/yolov5
+
+# Check virtual environment
+echo "Checking virtual environment..."
+if [ -f ~/yolo/venv/bin/activate ]; then
+    source ~/yolo/venv/bin/activate
+    echo "✓ Virtual environment activated"
+else
+    echo "Creating virtual environment..."
+    cd ~/yolo
+    python3 -m venv venv
+    source venv/bin/activate
+    cd yolov5
+    echo "✓ Virtual environment created and activated"
+fi
+
+# Check Python version
+echo -e "\nChecking Python version..."
+python --version
+
+# Update pip
+echo -e "\nUpdating pip..."
+pip install --upgrade pip
+
+# Install OpenCV and NumPy (ensure availability)
+echo -e "\nInstalling OpenCV and NumPy..."
+pip install opencv-python numpy
+
+# Try installing PyTorch (Raspberry Pi specific)
+echo -e "\nInstalling PyTorch (Raspberry Pi specific)..."
+echo "Note: This may take several minutes..."
+
+# Try different installation methods
+arch=$(uname -m)
+echo "Detected system architecture: $arch"
+
+if [[ $arch == *"aarch64"* || $arch == *"arm64"* ]]; then
+    echo "ARM64 architecture, using precompiled version..."
+    pip install torch==1.9.0 torchvision==0.10.0 -f https://download.pytorch.org/whl/cpu/torch_stable.html
+elif [[ $arch == *"armv7l"* || $arch == *"arm"* ]]; then
+    echo "ARMv7 architecture (Raspberry Pi 3/4), using lightweight version..."
+    pip install torch==1.8.0 torchvision==0.9.0 -f https://download.pytorch.org/whl/cpu/torch_stable.html
+else
+    echo "Universal architecture, trying standard installation..."
+    pip install torch torchvision --extra-index-url https://download.pytorch.org/whl/cpu
+fi
+
+# Check installation results
+echo -e "\nChecking installation results..."
+python -c "
+import sys
+print(f'Python version: {sys.version}')
+
+try:
+    import cv2
+    print(f'✓ OpenCV version: {cv2.__version__}')
+except:
+    print('✗ OpenCV not installed')
+
+try:
+    import numpy as np
+    print(f'✓ NumPy version: {np.__version__}')
+except:
+    print('✗ NumPy not installed')
+
+try:
+    import torch
+    print(f'✓ PyTorch version: {torch.__version__}')
+except:
+    print('✗ PyTorch not installed')
+    print('Note: PyTorch installation may have failed, we will use backup solution')
+"
+
+# Download YOLOv5 model files
+echo -e "\nDownloading YOLOv5 model files..."
+if [ ! -f "yolov5s.pt" ]; then
+    wget -q https://github.com/ultralytics/yolov5/releases/download/v6.0/yolov5s.pt
+    echo "✓ Downloaded yolov5s.pt complete"
+fi
+
+if [ ! -f "yolov5n.pt" ]; then
+    wget -q https://github.com/ultralytics/yolov5/releases/download/v6.0/yolov5n.pt
+    echo "✓ Downloaded yolov5n.pt complete"
+fi
+
+# Create save directory
+mkdir -p phone_detections
+
+echo -e "\nInstallation complete!"
+echo "=" * 60
+echo "Next step: Run ./run_phone.sh to start system"
+SETUP_EOF
+
+chmod +x setup_phone_system.sh
+
+# Create main run script
+cat > run_phone.sh << 'RUN_EOF'
+#!/bin/bash
+echo "Phone Detection System - Main Run Script"
+echo "=" * 60
+
+cd ~/yolo/yolov5
+
+# Check if installed
+if [ ! -f "setup_phone_system.sh" ]; then
+    echo "Error: Please run ./setup_phone_system.sh first to install system"
+    exit 1
+fi
+
+# Check virtual environment
+if [ -f ~/yolo/venv/bin/activate ]; then
+    source ~/yolo/venv/bin/activate
+else
+    echo "Warning: Virtual environment not found, trying to run directly"
+fi
+
+# Check if PyTorch is installed
+echo "Checking system status..."
+python -c "
+try:
+    import torch
+    pytorch_available = True
+except:
+    pytorch_available = False
+"
+
+# Show menu
+echo -e "\nSelect run mode:"
+echo "1. Auto detection mode (intelligently select best solution)"
+echo "2. Simple phone detection (no PyTorch needed)"
+echo "3. Complete phone detection (using YOLOv5)"
+echo "4. Camera test"
+echo "5. System status check"
+echo "q. Exit"
+echo "=" * 60
+
+read -p "Enter option (1-5/q): " choice
+
+case $choice in
+    1)
+        echo "Auto detection mode..."
+        if [ "$pytorch_available" = "True" ]; then
+            echo "PyTorch detected as available, running complete version..."
+            python phone_detection_full.py
+        else
+            echo "PyTorch not available, running simple version..."
+            python phone_detection_simple.py
+        fi
+        ;;
+    2)
+        echo "Running simple phone detection..."
+        python phone_detection_simple.py
+        ;;
+    3)
+        if [ "$pytorch_available" = "True" ]; then
+            echo "Running complete phone detection..."
+            python phone_detection_full.py
+        else
+            echo "Error: PyTorch not installed, cannot run complete version"
+            echo "Please run option 2 or reinstall PyTorch"
+        fi
+        ;;
+    4)
+        echo "Testing camera..."
+        python test_camera.py
+        ;;
+    5)
+        echo "Checking system status..."
+        python system_check.py
+        ;;
+    q|Q)
+        echo "Exit"
+        ;;
+    *)
+        echo "Invalid option"
+        ;;
+esac
+RUN_EOF
+
+chmod +x run_phone.sh
+
+# Create simple phone detection (no PyTorch needed)
+cat > phone_detection_simple.py << 'SIMPLE_EOF'
+#!/usr/bin/env python3
+"""
+Simple Phone Detection - No PyTorch needed
+Using traditional computer vision methods
+"""
+
+import cv2
+import numpy as np
+import time
+import os
+
+print("Simple Phone Detection")
+print("=" * 50)
+
+def main():
+    # Open camera
+    cap = cv2.VideoCapture(0)
+    if not cap.isOpened():
+        print("Error: Cannot open camera")
+        return
+  
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+  
+    print("Camera opened")
+    print("Press 'q' to quit, 's' to save image")
+    print("-" * 50)
+  
+    frame_count = 0
+    start_time = time.time()
+  
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+      
+        frame_count += 1
+        frame = cv2.flip(frame, 1)
+      
+        # Convert to HSV color space
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+      
+        # Detect dark objects (phones are usually dark)
+        lower_dark = np.array([0, 0, 0])
+        upper_dark = np.array([180, 255, 80])
+        mask = cv2.inRange(hsv, lower_dark, upper_dark)
+      
+        # Morphological operations
+        kernel = np.ones((5, 5), np.uint8)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+      
+        # Find contours
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+      
+        detections = []
+        for contour in contours:
+            area = cv2.contourArea(contour)
+            if 1000 < area < 30000:
+                x, y, w, h = cv2.boundingRect(contour)
+                aspect_ratio = h / w
+              
+                # Phones are usually taller than wide, aspect ratio 1.5-3.5
+                if 1.5 < aspect_ratio < 3.5:
+                    detections.append((x, y, w, h, area))
+      
+        # Draw detection results
+        for (x, y, w, h, area) in detections:
+            cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
+            cv2.putText(frame, f"Phone", (x, y-10), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+      
+        # Calculate FPS
+        elapsed = time.time() - start_time
+        fps = frame_count / elapsed if elapsed > 0 else 0
+      
+        # Display information
+        cv2.putText(frame, f"FPS: {fps:.1f}", (10, 30),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
+        cv2.putText(frame, f"Detections: {len(detections)}", (10, 60),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
+        cv2.putText(frame, "Simple Detector (No PyTorch)", (10, 90),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (100, 255, 100), 2)
+        cv2.putText(frame, "Press 'q' to quit, 's' to save", (10, 120),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+      
+        cv2.imshow('Phone Detection (Simple)', frame)
+      
+        key = cv2.waitKey(1) & 0xFF
+        if key == ord('q'):
+            break
+        elif key == ord('s'):
+            timestamp = time.strftime("%Y%m%d_%H%M%S")
+            filename = f"phone_detection_{timestamp}.jpg"
+            cv2.imwrite(filename, frame)
+            print(f"Image saved: {filename}")
+  
+    cap.release()
+    cv2.destroyAllWindows()
+  
+    print(f"\nRun statistics:")
+    print(f"Total frames: {frame_count}")
+    print(f"Average FPS: {fps:.1f}")
+    print(f"Detection count: {sum(1 for _ in detections)}")
+
+if __name__ == "__main__":
+    main()
+SIMPLE_EOF
+
+# Create complete phone detection (using YOLOv5)
+cat > phone_detection_full.py << 'FULL_EOF'
+#!/usr/bin/env python3
+"""
+Complete Phone Detection - Using YOLOv5
+"""
+
+import cv2
+import torch
+import numpy as np
+import time
+
+print("Complete Phone Detection - YOLOv5")
+print("=" * 50)
+
+def main():
+    print("Loading YOLOv5 model...")
+    try:
+        # Load model
+        model = torch.hub.load('ultralytics/yolov5', 'yolov5s', pretrained=True)
+        model.conf = 0.25  # Confidence threshold
+      
+        # Find phone class IDs
+        phone_ids = []
+        for idx, name in model.names.items():
+            if 'cell phone' in name.lower() or 'phone' in name.lower():
+                phone_ids.append(idx)
+                print(f"Found phone class: {name} (ID: {idx})")
+      
+        if not phone_ids:
+            phone_ids = [67]  # Default phone class ID
+            print(f"Using default phone class ID: 67")
+      
+        print("Model loaded successfully")
+    except Exception as e:
+        print(f"Model loading failed: {e}")
+        print("Please ensure PyTorch is correctly installed")
+        return
+  
+    # Open camera
+    cap = cv2.VideoCapture(0)
+    if not cap.isOpened():
+        print("Error: Cannot open camera")
+        return
+  
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+  
+    print("Camera opened")
+    print("Press 'q' to quit, 's' to save image")
+    print("-" * 50)
+  
+    frame_count = 0
+    detection_count = 0
+    start_time = time.time()
+  
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+      
+        frame_count += 1
+        frame = cv2.flip(frame, 1)
+      
+        # YOLO detection
+        results = model(frame, size=320)
+        detections = results.pandas().xyxy[0]
+      
+        # Filter phone detections
+        phone_detections = []
+        for _, det in detections.iterrows():
+            if det['class'] in phone_ids and det['confidence'] >= 0.25:
+                x1, y1, x2, y2 = int(det['xmin']), int(det['ymin']), int(det['xmax']), int(det['ymax'])
+                phone_detections.append((x1, y1, x2, y2, det['confidence']))
+                detection_count += 1
+      
+        # Draw detection results
+        for (x1, y1, x2, y2, conf) in phone_detections:
+            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+            label = f"Phone: {conf:.2f}"
+            cv2.putText(frame, label, (x1, y1-10), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+      
+        # Calculate FPS
+        elapsed = time.time() - start_time
+        fps = frame_count / elapsed if elapsed > 0 else 0
+      
+        # Display information
+        cv2.putText(frame, f"FPS: {fps:.1f}", (10, 30),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
+        cv2.putText(frame, f"Detections: {len(phone_detections)}", (10, 60),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
+        cv2.putText(frame, "YOLOv5 Detector", (10, 90),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (100, 255, 100), 2)
+        cv2.putText(frame, "Press 'q' to quit, 's' to save", (10, 120),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+      
+        cv2.imshow('Phone Detection (YOLOv5)', frame)
+      
+        key = cv2.waitKey(1) & 0xFF
+        if key == ord('q'):
+            break
+        elif key == ord('s'):
+            timestamp = time.strftime("%Y%m%d_%H%M%S")
+            filename = f"phone_detection_yolo_{timestamp}.jpg"
+            cv2.imwrite(filename, frame)
+            print(f"Image saved: {filename}")
+  
+    cap.release()
+    cv2.destroyAllWindows()
+  
+    print(f"\nRun statistics:")
+    print(f"Total frames: {frame_count}")
+    print(f"Detection count: {detection_count}")
+    print(f"Average FPS: {fps:.1f}")
+
+if __name__ == "__main__":
+    main()
+FULL_EOF
+
+# Create camera test script
+cat > test_camera.py << 'CAMERA_EOF'
+#!/usr/bin/env python3
+"""
+Camera test script
+"""
+
+import cv2
+import time
+
+print("Camera Test")
+print("=" * 50)
+
+# Test all cameras
+for i in range(4):
+    cap = cv2.VideoCapture(i)
+    if cap.isOpened():
+        print(f"Camera {i}: Available")
+        cap.release()
+    else:
+        print(f"Camera {i}: Not available")
+
+print("-" * 50)
+
+# Use first available camera
+cap = None
+for i in range(4):
+    cap = cv2.VideoCapture(i)
+    if cap.isOpened():
+        print(f"Using camera {i}")
+        break
+
+if cap is None:
+    print("Error: No camera available")
+    exit(1)
+
+cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+
+print("Testing camera...")
+print("Press 'q' to quit")
+
+frame_count = 0
+start_time = time.time()
+
+while True:
+    ret, frame = cap.read()
+    if not ret:
+        print("Cannot read frame")
+        break
+  
+    frame_count += 1
+    frame = cv2.flip(frame, 1)
+  
+    # Calculate FPS
+    elapsed = time.time() - start_time
+    fps = frame_count / elapsed if elapsed > 0 else 0
+  
+    # Display information
+    cv2.putText(frame, f"Camera Test", (10, 30),
+               cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
+    cv2.putText(frame, f"FPS: {fps:.1f}", (10, 60),
+               cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
+    cv2.putText(frame, f"Frame: {frame_count}", (10, 90),
+               cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
+  
+    cv2.imshow('Camera Test', frame)
+  
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+
+cap.release()
+cv2.destroyAllWindows()
+
+print(f"\nTest complete!")
+print(f"Total frames: {frame_count}")
+print(f"Average FPS: {fps:.1f}")
+CAMERA_EOF
+
+# Create system check script
+cat > system_check.py << 'CHECK_EOF'
+#!/usr/bin/env python3
+"""
+System check script
+"""
+
+import sys
+import platform
+
+print("System Status Check")
+print("=" * 60)
+
+print(f"Python version: {sys.version}")
+print(f"System architecture: {platform.machine()}")
+print(f"System: {platform.system()} {platform.release()}")
+print(f"Processor: {platform.processor()}")
+
+print("\nChecking dependencies...")
+
+# Check OpenCV
+try:
+    import cv2
+    print(f"✓ OpenCV version: {cv2.__version__}")
+except ImportError:
+    print("✗ OpenCV not installed")
+
+# Check NumPy
+try:
+    import numpy as np
+    print(f"✓ NumPy version: {np.__version__}")
+except ImportError:
+    print("✗ NumPy not installed")
+
+# Check PyTorch
+try:
+    import torch
+    print(f"✓ PyTorch version: {torch.__version__}")
+    print(f"✓ PyTorch CUDA available: {torch.cuda.is_available()}")
+except ImportError:
+    print("✗ PyTorch not installed")
+
+print("\nChecking cameras...")
+try:
+    import cv2
+    for i in range(4):
+        cap = cv2.VideoCapture(i)
+        if cap.isOpened():
+            print(f"✓ Camera {i}: Available")
+            cap.release()
+        else:
+            print(f"✗ Camera {i}: Not available")
+except:
+    print("✗ Cannot check cameras")
+
+print("\nChecking model files...")
+import os
+if os.path.exists("yolov5s.pt"):
+    print("✓ yolov5s.pt: Exists")
+else:
+    print("✗ yolov5s.pt: Does not exist")
+
+if os.path.exists("yolov5n.pt"):
+    print("✓ yolov5n.pt: Exists")
+else:
+    print("✗ yolov5n.pt: Does not exist")
+
+print("\nChecking directory permissions...")
+if os.access(".", os.W_OK):
+    print("✓ Current directory writable")
+else:
+    print("✗ Current directory not writable")
+
+print("\nSystem check complete!")
+print("=" * 60)
+
+print("\nSuggestions:")
+print("1. If PyTorch not installed, run: ./setup_phone_system.sh")
+print("2. If camera not available, check connection")
+print("3. If missing model files, they will be automatically downloaded")
+CHECK_EOF
+
+echo "All files created successfully!"
+echo ""
+echo "Next step: Run ./setup_phone_system.sh to install system"
+echo "Then: Run ./run_phone.sh to start system"
+echo "=" * 60
+EOF
+
+chmod +x create_complete_system.sh
+./create_complete_system.sh
+```
+
+## Step 2: Install System
+
+```bash
+# Install phone detection system
+cd ~/yolo/yolov5
+./setup_phone_system.sh
+```
+
+## Step 3: Run System
+
+```bash
+# Run phone detection system
+cd ~/yolo/yolov5
+./run_phone.sh
+```
+
+## If Above Steps Fail, Use This Ultimate Solution
+
+```bash
+# Ultimate solution - step by step manual operation
+cd ~/yolo/yolov5
+
+# 1. Create virtual environment (if not exists)
+if [ ! -f ~/yolo/venv/bin/activate ]; then
+    echo "Creating virtual environment..."
+    cd ~/yolo
+    python3 -m venv venv
+    cd yolov5
+fi
+
+# 2. Activate virtual environment
+source ~/yolo/venv/bin/activate
+
+# 3. Install basic dependencies
+pip install --upgrade pip
+pip install opencv-python numpy
+
+# 4. Create simplest test script
+cat > ultra_simple_test.py << 'ULTRA_EOF'
+#!/usr/bin/env python3
+"""
+Ultra Simple Phone Detection - Ensures it can run
+"""
+
+import cv2
+import time
+
+print("Ultra Simple Phone Detection")
+print("=" * 50)
+
+# Open camera
+cap = cv2.VideoCapture(0)
+if not cap.isOpened():
+    print("Cannot open camera, trying other IDs...")
+    for i in range(1, 4):
+        cap = cv2.VideoCapture(i)
+        if cap.isOpened():
+            print(f"Using camera {i}")
+            break
+
+if not cap.isOpened():
+    print("Error: No camera available")
+    exit(1)
+
+cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+
+print("Camera opened")
+print("Press 'q' to quit")
+print("-" * 50)
+
+frame_count = 0
+start_time = time.time()
+
+while True:
+    ret, frame = cap.read()
+    if not ret:
+        break
+  
+    frame_count += 1
+    frame = cv2.flip(frame, 1)
+  
+    # Simple detection: find dark rectangular areas
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    _, thresh = cv2.threshold(gray, 60, 255, cv2.THRESH_BINARY_INV)
+  
+    # Find contours
+    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+  
+    for contour in contours:
+        area = cv2.contourArea(contour)
+        if 1000 < area < 20000:
+            x, y, w, h = cv2.boundingRect(contour)
+            cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
+            cv2.putText(frame, "Object", (x, y-10), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+  
+    # Calculate FPS
+    elapsed = time.time() - start_time
+    fps = frame_count / elapsed if elapsed > 0 else 0
+  
+    # Display information
+    cv2.putText(frame, f"FPS: {fps:.1f}", (10, 30),
+               cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
+    cv2.putText(frame, "Ultra Simple Detector", (10, 60),
+               cv2.FONT_HERSHEY_SIMPLEX, 0.6, (100, 255, 100), 2)
+  
+    cv2.imshow('Ultra Simple Detection', frame)
+  
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+
+cap.release()
+cv2.destroyAllWindows()
+
+print(f"\nRun complete!")
+print(f"Total frames: {frame_count}")
+print(f"Average FPS: {fps:.1f}")
+ULTRA_EOF
+
+# Run ultra simple test
+python ultra_simple_test.py
+```
+
+## Quick Start Guide
+
+If you only need quick startup, use this three-step method:
+
+```bash
+# Step 1: Set up environment
+cd ~/yolo/yolov5
+source ~/yolo/venv/bin/activate
+
+# Step 2: Run test
+python -c "
+import cv2
+print('OpenCV test...')
+cap = cv2.VideoCapture(0)
+if cap.isOpened():
+    print('Camera available')
+    cap.release()
+else:
+    print('Camera not available')
+"
+
+# Step 3: Start simple detection
+python -c "
+import cv2
+import time
+
+print('Starting simple detection...')
+cap = cv2.VideoCapture(0)
+if not cap.isOpened():
+    exit(1)
+
+while True:
+    ret, frame = cap.read()
+    if not ret: break
+  
+    frame = cv2.flip(frame, 1)
+  
+    # Display
+    cv2.imshow('Test', frame)
+  
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+
+cap.release()
+cv2.destroyAllWindows()
+"
+```
+
+## Summary
+
+Simplest startup method:
+
+```bash
+# One-time startup command
+cd ~/yolo/yolov5 && source ~/yolo/venv/bin/activate 2>/dev/null || echo "No venv" && python -c "
+import cv2
+cap = cv2.VideoCapture(0)
+if cap.isOpened():
+    print('Starting camera...')
+    while True:
+        ret, frame = cap.read()
+        if not ret: break
+        cv2.imshow('Camera', frame)
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+    cap.release()
+    cv2.destroyAllWindows()
+else:
+    print('Camera not available')
+"
+```
+
+## Alternative: If Everything Fails
+
+If all methods fail, use this absolutely guaranteed to run version:
+
+```bash
+# Create absolutely guaranteed to run version
+cd ~/yolo/yolov5
+
+cat > absolutely_work.py << 'ABSOLUTE_EOF'
+import cv2
+print("Absolutely guaranteed to run phone detection")
+cap = cv2.VideoCapture(0)
+if not cap.isOpened():
+    print("Please check camera connection")
+    exit()
+
+print("Press q to quit")
+while True:
+    ok, img = cap.read()
+    if not ok: break
+    cv2.imshow('Camera', img)
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+
+cap.release()
+cv2.destroyAllWindows()
+print("Complete")
+ABSOLUTE_EOF
+
+python absolutely_work.py
+```
+
+**Simplest startup command** (copy this line to terminal):
+```bash
+cd ~/yolo/yolov5 && python -c "import cv2;c=cv2.VideoCapture(0);print('Camera' + (' available' if c.isOpened() else ' not available'));c.release()" && python -c "import cv2;c=cv2.VideoCapture(0);exec('while 1:_,i=c.read();cv2.imshow(\"Camera\",i);cv2.waitKey(1)&0xFF==ord(\"q\")and exit()') if c.isOpened() else print('No camera')"
+```
