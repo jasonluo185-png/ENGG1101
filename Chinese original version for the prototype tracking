@@ -1,0 +1,1660 @@
+# 手机识别系统 - 全套操作指南
+
+我将创建一个完整的手机识别系统，用于检测和追踪手机。YOLOv5可以很好地识别手机（类别ID为67或77，取决于模型版本）。
+
+## 1. 创建手机识别系统
+
+### 1.1 创建主程序文件 `phone_detection_system.py`
+
+```bash
+cd ~/yolo/yolov5
+cat > phone_detection_system.py << 'EOF'
+#!/usr/bin/env python3
+"""
+树莓派手机识别系统 - 主程序
+支持手机检测、追踪和统计
+"""
+
+import cv2
+import torch
+import numpy as np
+import time
+import os
+import sys
+import json
+from datetime import datetime
+
+print("=" * 60)
+print("树莓派手机识别系统")
+print("=" * 60)
+print(f"Python版本: {sys.version}")
+print(f"NumPy版本: {np.__version__}")
+print(f"OpenCV版本: {cv2.__version__}")
+print(f"PyTorch版本: {torch.__version__}")
+print("=" * 60)
+
+# ========== 配置文件 ==========
+class Config:
+    """系统配置文件"""
+
+    # 系统设置
+    DEBUG_MODE = True
+    LOG_LEVEL = "INFO"  # DEBUG, INFO, WARNING, ERROR
+
+    # 摄像头设置
+    CAMERA_ID = 0                    # 摄像头ID，0通常是默认摄像头
+    FRAME_WIDTH = 640                # 图像宽度
+    FRAME_HEIGHT = 480               # 图像高度
+    FPS = 15                         # 目标帧率
+    FLIP_HORIZONTAL = True           # 水平翻转图像
+
+    # YOLO检测设置
+    MODEL_NAME = 'yolov5n'           # 模型名称：yolov5n, yolov5s
+    WEIGHTS_PATH = 'yolov5n.pt'      # 模型权重文件
+    CONFIDENCE_THRESHOLD = 0.4       # 置信度阈值（手机通常比人脸难检测，降低阈值）
+    IOU_THRESHOLD = 0.45             # IOU阈值
+    INFERENCE_SIZE = 320             # 推理尺寸
+
+    # 手机检测设置
+    TARGET_CLASSES = ['cell phone', 'mobile phone', 'phone']  # 目标类别
+    MIN_OBJECT_SIZE = 20              # 最小物体尺寸
+    MAX_OBJECT_SIZE = 300             # 最大物体尺寸
+
+    # 追踪设置
+    ENABLE_TRACKING = True           # 启用追踪
+    MAX_MISS_FRAMES = 15             # 最大丢失帧数（手机可能被遮挡）
+    SMOOTHING_FACTOR = 0.4           # 平滑系数
+
+    # 显示设置
+    SHOW_FPS = True                  # 显示FPS
+    SHOW_BBOX = True                 # 显示边界框
+    SHOW_CENTER = True               # 显示中心点
+    SHOW_INFO = True                 # 显示信息
+    SHOW_GRID = False                # 显示网格
+
+    # 保存设置
+    SAVE_DETECTIONS = True           # 保存检测结果
+    SAVE_INTERVAL = 5                # 保存间隔（秒）
+    SAVE_PATH = "phone_detections"   # 保存路径
+
+    # 性能设置
+    USE_GPU = False                  # 使用GPU（树莓派通常不支持）
+    OPTIMIZE_PERFORMANCE = True      # 性能优化
+
+# ========== 日志系统 ==========
+class Logger:
+    """日志系统"""
+
+    def __init__(self, level="INFO"):
+        self.level = level
+        self.levels = {"DEBUG": 0, "INFO": 1, "WARNING": 2, "ERROR": 3}
+        self.log_file = f"phone_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+    
+    def log(self, message, level="INFO"):
+        if self.levels.get(level, 1) >= self.levels.get(self.level, 1):
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            log_msg = f"[{timestamp}] [{level}] {message}"
+            print(log_msg)
+        
+            # 写入日志文件
+            with open(self.log_file, 'a') as f:
+                f.write(log_msg + '\n')
+
+# ========== 摄像头管理器 ==========
+class CameraManager:
+    """摄像头管理器"""
+
+    def __init__(self, logger):
+        self.logger = logger
+        self.cap = None
+        self.is_opened = False
+    
+    def open_camera(self, camera_id=0, width=640, height=480, fps=15):
+        """打开摄像头"""
+        self.logger.log(f"尝试打开摄像头 ID: {camera_id}", "INFO")
+    
+        # 尝试多个摄像头ID
+        for cam_id in range(camera_id, camera_id + 4):
+            try:
+                self.cap = cv2.VideoCapture(cam_id)
+                if self.cap.isOpened():
+                    # 测试读取一帧
+                    ret, frame = self.cap.read()
+                    if ret:
+                        self.logger.log(f"成功打开摄像头 ID: {cam_id}", "INFO")
+                        self.logger.log(f"原始图像尺寸: {frame.shape}", "DEBUG")
+                    
+                        # 设置摄像头参数
+                        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+                        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+                        self.cap.set(cv2.CAP_PROP_FPS, fps)
+                    
+                        # 获取实际设置
+                        actual_width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                        actual_height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                        actual_fps = self.cap.get(cv2.CAP_PROP_FPS)
+                    
+                        self.logger.log(f"设置参数: 宽度={actual_width}, 高度={actual_height}, FPS={actual_fps}", "INFO")
+                    
+                        self.is_opened = True
+                        return True
+                    else:
+                        self.cap.release()
+                        self.logger.log(f"摄像头 ID {cam_id} 无法读取帧", "WARNING")
+                else:
+                    self.logger.log(f"摄像头 ID {cam_id} 不可用", "DEBUG")
+            except Exception as e:
+                self.logger.log(f"打开摄像头 ID {cam_id} 时出错: {e}", "WARNING")
+    
+        self.logger.log("无法打开任何摄像头", "ERROR")
+        return False
+
+    def read_frame(self):
+        """读取一帧图像"""
+        if not self.is_opened or self.cap is None:
+            return None
+    
+        ret, frame = self.cap.read()
+        if ret:
+            return frame
+        else:
+            self.logger.log("无法读取帧", "WARNING")
+            return None
+
+    def get_frame_size(self):
+        """获取帧尺寸"""
+        if self.is_opened and self.cap is not None:
+            width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            return (width, height)
+        return (0, 0)
+
+    def release(self):
+        """释放摄像头"""
+        if self.cap is not None:
+            self.cap.release()
+            self.is_opened = False
+            self.logger.log("摄像头已释放", "INFO")
+
+# ========== YOLO手机检测器 ==========
+class PhoneDetector:
+    """YOLOv5手机检测器"""
+
+    def __init__(self, logger):
+        self.logger = logger
+        self.model = None
+        self.class_names = None
+        self.phone_class_ids = []  # 可能有多个类别表示手机
+    
+        # 统计信息
+        self.total_frames = 0
+        self.total_detections = 0
+        self.detection_times = []
+    
+        self._load_model()
+
+    def _load_model(self):
+        """加载YOLOv5模型"""
+        self.logger.log(f"正在加载YOLOv5模型: {Config.MODEL_NAME}", "INFO")
+    
+        try:
+            # 设置设备
+            device = 'cuda' if torch.cuda.is_available() and Config.USE_GPU else 'cpu'
+            self.logger.log(f"使用设备: {device}", "INFO")
+        
+            # 加载模型
+            self.model = torch.hub.load('ultralytics/yolov5', Config.MODEL_NAME, pretrained=True)
+            self.model.to(device)
+        
+            # 配置模型参数
+            self.model.conf = Config.CONFIDENCE_THRESHOLD
+            self.model.iou = Config.IOU_THRESHOLD
+            self.model.agnostic = False
+            self.model.multi_label = False
+            self.model.max_det = 10
+        
+            # 获取类别名称
+            self.class_names = self.model.names
+            self.logger.log(f"模型加载了 {len(self.class_names)} 个类别", "INFO")
+        
+            # 查找手机的类别ID
+            self._find_phone_class_ids()
+        
+            if not self.phone_class_ids:
+                self.logger.log("警告: 未找到手机相关类别", "WARNING")
+                self.logger.log("可用的类别有:", "INFO")
+                for idx, name in self.class_names.items():
+                    self.logger.log(f"  {idx}: {name}", "INFO")
+        
+            self.logger.log("手机检测器初始化完成", "INFO")
+        
+        except Exception as e:
+            self.logger.log(f"加载模型失败: {e}", "ERROR")
+            self.logger.log("尝试备用加载方法...", "INFO")
+        
+            try:
+                # 尝试本地加载
+                self.model = torch.hub.load('.', Config.MODEL_NAME, source='local', pretrained=True)
+                self.model.conf = Config.CONFIDENCE_THRESHOLD
+                self.class_names = self.model.names
+                self._find_phone_class_ids()
+                self.logger.log("从本地加载模型成功", "INFO")
+            except Exception as e2:
+                self.logger.log(f"本地加载也失败: {e2}", "ERROR")
+                raise
+
+    def _find_phone_class_ids(self):
+        """查找手机的类别ID"""
+        self.phone_class_ids = []
+    
+        # 可能的手机类别名称
+        phone_keywords = ['cell phone', 'mobile phone', 'phone', 'smartphone', 'cellphone']
+    
+        for idx, name in self.class_names.items():
+            name_lower = name.lower()
+            for keyword in phone_keywords:
+                if keyword in name_lower:
+                    self.phone_class_ids.append(idx)
+                    self.logger.log(f"找到手机类别: '{name}' (ID: {idx})", "INFO")
+                    break
+    
+        # 如果没有找到，尝试使用类别ID 67（YOLOv5中通常是cell phone）
+        if not self.phone_class_ids:
+            self.logger.log("未通过名称找到手机类别，尝试使用ID 67", "WARNING")
+            if 67 in self.class_names:
+                self.phone_class_ids.append(67)
+                self.logger.log(f"使用类别ID 67: '{self.class_names[67]}'", "INFO")
+    
+        self.logger.log(f"共找到 {len(self.phone_class_ids)} 个手机相关类别", "INFO")
+
+    def detect(self, frame):
+        """检测图像中的手机"""
+        self.total_frames += 1
+        start_time = time.time()
+    
+        try:
+            # 运行YOLO推理
+            results = self.model(frame, size=Config.INFERENCE_SIZE)
+        
+            # 获取检测结果
+            detections = results.pandas().xyxy[0]
+        
+            # 计算检测时间
+            detection_time = time.time() - start_time
+            self.detection_times.append(detection_time)
+        
+            # 过滤和格式化检测结果
+            phone_detections = []
+            for _, det in detections.iterrows():
+                confidence = det['confidence']
+            
+                # 检查置信度
+                if confidence >= Config.CONFIDENCE_THRESHOLD:
+                    # 检查是否是手机类别
+                    if det['class'] in self.phone_class_ids:
+                        # 计算边界框信息
+                        x1, y1, x2, y2 = det['xmin'], det['ymin'], det['xmax'], det['ymax']
+                        width = x2 - x1
+                        height = y2 - y1
+                    
+                        # 过滤大小
+                        if Config.MIN_OBJECT_SIZE <= min(width, height) <= Config.MAX_OBJECT_SIZE:
+                            phone_detections.append({
+                                'bbox': (x1, y1, x2, y2),
+                                'confidence': confidence,
+                                'class_name': det['name'],
+                                'class_id': det['class'],
+                                'center_x': (x1 + x2) / 2,
+                                'center_y': (y1 + y2) / 2,
+                                'width': width,
+                                'height': height,
+                                'area': width * height
+                            })
+        
+            if phone_detections:
+                self.total_detections += len(phone_detections)
+        
+            return phone_detections
+        
+        except Exception as e:
+            self.logger.log(f"检测过程中出错: {e}", "ERROR")
+            return []
+
+    def get_statistics(self):
+        """获取统计信息"""
+        if not self.detection_times:
+            avg_time = 0
+        else:
+            avg_time = sum(self.detection_times) / len(self.detection_times)
+    
+        detection_rate = self.total_detections / self.total_frames if self.total_frames > 0 else 0
+    
+        return {
+            'total_frames': self.total_frames,
+            'total_detections': self.total_detections,
+            'detection_rate': detection_rate,
+            'avg_detection_time_ms': avg_time * 1000,
+            'fps': 1 / avg_time if avg_time > 0 else 0
+        }
+
+# ========== 手机追踪器 ==========
+class PhoneTracker:
+    """手机追踪器"""
+
+    def __init__(self, logger):
+        self.logger = logger
+        self.tracked_phone = None
+        self.track_id = 0
+        self.miss_count = 0
+        self.track_history = []
+    
+    def update(self, detections, frame_center):
+        """更新追踪状态"""
+        if not detections:
+            self.miss_count += 1
+        
+            if self.miss_count > Config.MAX_MISS_FRAMES:
+                self.tracked_phone = None
+                self.track_id = 0
+        
+            return self.tracked_phone
+    
+        # 重置丢失计数
+        self.miss_count = 0
+    
+        # 如果没有正在追踪的手机，选择最接近中心或最大的手机
+        if self.tracked_phone is None:
+            best_detection = self._select_best_detection(detections, frame_center)
+            if best_detection:
+                self.track_id += 1
+                self.tracked_phone = best_detection
+                self.tracked_phone['track_id'] = self.track_id
+                self.logger.log(f"开始追踪手机 #{self.track_id}", "INFO")
+    
+        # 如果正在追踪，更新位置
+        elif self.tracked_phone:
+            # 寻找最接近上次位置的检测
+            closest_detection = self._find_closest_detection(detections)
+            if closest_detection:
+                # 应用平滑
+                if Config.SMOOTHING_FACTOR > 0:
+                    self._apply_smoothing(closest_detection)
+            
+                closest_detection['track_id'] = self.track_id
+                self.tracked_phone = closest_detection
+    
+        # 记录追踪历史
+        if self.tracked_phone:
+            self.track_history.append({
+                'frame': len(self.track_history),
+                'time': time.time(),
+                'position': (self.tracked_phone['center_x'], self.tracked_phone['center_y']),
+                'confidence': self.tracked_phone['confidence']
+            })
+        
+            # 限制历史记录长度
+            if len(self.track_history) > 100:
+                self.track_history = self.track_history[-100:]
+    
+        return self.tracked_phone
+
+    def _select_best_detection(self, detections, frame_center):
+        """选择最佳检测目标"""
+        if not detections:
+            return None
+    
+        best_score = -1
+        best_detection = None
+    
+        cx, cy = frame_center
+    
+        for det in detections:
+            # 计算距离分数（距离越近分数越高）
+            dx = det['center_x'] - cx
+            dy = det['center_y'] - cy
+            distance = np.sqrt(dx**2 + dy**2)
+            max_distance = np.sqrt(cx**2 + cy**2)
+            distance_score = 1 - (distance / max_distance) if max_distance > 0 else 1
+        
+            # 面积分数（面积越大分数越高）
+            area_score = det['area'] / (cx * cy * 4) if cx * cy > 0 else 0
+        
+            # 置信度分数
+            confidence_score = det['confidence']
+        
+            # 综合分数（手机通常较小，所以面积权重降低，距离权重增加）
+            total_score = distance_score * 0.5 + area_score * 0.2 + confidence_score * 0.3
+        
+            if total_score > best_score:
+                best_score = total_score
+                best_detection = det
+    
+        return best_detection
+
+    def _find_closest_detection(self, detections):
+        """寻找最接近的检测"""
+        if not detections or self.tracked_phone is None:
+            return None
+    
+        best_distance = float('inf')
+        best_detection = None
+    
+        tx, ty = self.tracked_phone['center_x'], self.tracked_phone['center_y']
+    
+        for det in detections:
+            dx = det['center_x'] - tx
+            dy = det['center_y'] - ty
+            distance = np.sqrt(dx**2 + dy**2)
+        
+            if distance < best_distance:
+                best_distance = distance
+                best_detection = det
+    
+        return best_detection
+
+    def _apply_smoothing(self, detection):
+        """应用平滑滤波"""
+        if self.tracked_phone:
+            alpha = Config.SMOOTHING_FACTOR
+            detection['center_x'] = alpha * detection['center_x'] + (1 - alpha) * self.tracked_phone['center_x']
+            detection['center_y'] = alpha * detection['center_y'] + (1 - alpha) * self.tracked_phone['center_y']
+
+    def get_tracking_info(self):
+        """获取追踪信息"""
+        if self.tracked_phone:
+            return {
+                'tracking': True,
+                'track_id': self.track_id,
+                'position': (self.tracked_phone['center_x'], self.tracked_phone['center_y']),
+                'confidence': self.tracked_phone['confidence'],
+                'miss_count': self.miss_count,
+                'history_length': len(self.track_history)
+            }
+        else:
+            return {
+                'tracking': False,
+                'track_id': 0,
+                'miss_count': self.miss_count
+            }
+
+# ========== 可视化工具 ==========
+class Visualizer:
+    """可视化工具"""
+
+    def __init__(self, logger):
+        self.logger = logger
+        self.window_name = "手机识别系统"
+        self.font_scale = 0.6
+        self.font_thickness = 2
+    
+        # 创建显示窗口
+        cv2.namedWindow(self.window_name, cv2.WINDOW_NORMAL)
+        cv2.resizeWindow(self.window_name, 800, 600)
+    
+        # 颜色定义
+        self.colors = {
+            'bbox': (0, 255, 0),        # 绿色 - 检测框
+            'tracking': (0, 0, 255),    # 红色 - 追踪目标
+            'center': (255, 0, 0),      # 蓝色 - 中心点
+            'text': (255, 255, 255),    # 白色 - 文本
+            'info': (255, 255, 0),      # 青色 - 信息
+            'fps': (255, 0, 255),       # 紫色 - FPS
+            'grid': (100, 100, 100)     # 灰色 - 网格
+        }
+
+    def draw_detections(self, frame, detections, tracked_phone=None):
+        """绘制检测结果"""
+        display_frame = frame.copy()
+    
+        # 绘制网格
+        if Config.SHOW_GRID:
+            self._draw_grid(display_frame)
+    
+        # 绘制所有检测
+        for det in detections:
+            self._draw_detection(display_frame, det, is_tracked=False)
+    
+        # 绘制追踪目标
+        if tracked_phone:
+            self._draw_detection(display_frame, tracked_phone, is_tracked=True)
+    
+        return display_frame
+
+    def _draw_detection(self, frame, detection, is_tracked=False):
+        """绘制单个检测"""
+        x1, y1, x2, y2 = map(int, detection['bbox'])
+        center_x, center_y = int(detection['center_x']), int(detection['center_y'])
+    
+        # 选择颜色
+        if is_tracked:
+            color = self.colors['tracking']
+            bbox_thickness = 3
+            center_radius = 8
+        else:
+            color = self.colors['bbox']
+            bbox_thickness = 2
+            center_radius = 5
+    
+        # 绘制边界框
+        if Config.SHOW_BBOX:
+            cv2.rectangle(frame, (x1, y1), (x2, y2), color, bbox_thickness)
+    
+        # 绘制中心点
+        if Config.SHOW_CENTER:
+            cv2.circle(frame, (center_x, center_y), center_radius, color, -1)
+    
+        # 绘制标签
+        label = f"{detection['class_name']}: {detection['confidence']:.2f}"
+        if 'track_id' in detection:
+            label = f"#{detection['track_id']} " + label
+    
+        # 计算文本尺寸
+        (text_width, text_height), baseline = cv2.getTextSize(
+            label, cv2.FONT_HERSHEY_SIMPLEX, self.font_scale, self.font_thickness
+        )
+    
+        # 绘制标签背景
+        cv2.rectangle(frame, 
+                     (x1, y1 - text_height - 10),
+                     (x1 + text_width, y1),
+                     color, -1)
+    
+        # 绘制标签文本
+        cv2.putText(frame, label,
+                   (x1, y1 - 5),
+                   cv2.FONT_HERSHEY_SIMPLEX, self.font_scale,
+                   self.colors['text'], self.font_thickness)
+
+    def _draw_grid(self, frame):
+        """绘制网格"""
+        height, width = frame.shape[:2]
+        grid_size = 50
+    
+        # 垂直线
+        for x in range(0, width, grid_size):
+            cv2.line(frame, (x, 0), (x, height), self.colors['grid'], 1)
+    
+        # 水平线
+        for y in range(0, height, grid_size):
+            cv2.line(frame, (0, y), (width, y), self.colors['grid'], 1)
+
+    def add_info_overlay(self, frame, stats, tracking_info, fps, frame_count):
+        """添加信息叠加层"""
+        if not Config.SHOW_INFO:
+            return frame
+    
+        display_frame = frame.copy()
+        height, width = display_frame.shape[:2]
+    
+        # 创建半透明背景
+        overlay = display_frame.copy()
+        cv2.rectangle(overlay, (0, 0), (width, 140), (0, 0, 0), -1)
+        cv2.addWeighted(overlay, 0.7, display_frame, 0.3, 0, display_frame)
+    
+        y_offset = 30
+        line_height = 30
+    
+        # 系统信息
+        info_lines = [
+            f"系统状态: {'运行中' if fps > 0 else '初始化'}",
+            f"帧率: {fps:.1f} FPS",
+            f"帧计数: {frame_count}",
+            f"检测时间: {stats['avg_detection_time_ms']:.1f} ms",
+            f"检测率: {stats['detection_rate']*100:.1f}%"
+        ]
+    
+        for i, line in enumerate(info_lines):
+            y_pos = y_offset + i * line_height
+            cv2.putText(display_frame, line, (10, y_pos),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, self.colors['info'], 1)
+    
+        # 追踪信息
+        if tracking_info['tracking']:
+            track_lines = [
+                f"追踪状态: 跟踪手机 #{tracking_info['track_id']}",
+                f"位置: ({tracking_info['position'][0]:.0f}, {tracking_info['position'][1]:.0f})",
+                f"置信度: {tracking_info['confidence']:.2f}",
+                f"丢失计数: {tracking_info['miss_count']}"
+            ]
+        
+            for i, line in enumerate(track_lines):
+                y_pos = y_offset + (i + len(info_lines)) * line_height
+                cv2.putText(display_frame, line, (300, y_pos),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.6, self.colors['tracking'], 1)
+        else:
+            cv2.putText(display_frame, "追踪状态: 未追踪", (300, y_offset),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 1)
+    
+        # 绘制中心标记
+        center_x, center_y = width // 2, height // 2
+        cv2.circle(display_frame, (center_x, center_y), 5, self.colors['center'], -1)
+        cv2.circle(display_frame, (center_x, center_y), 20, self.colors['center'], 1)
+    
+        # 指令提示
+        cv2.putText(display_frame, "按 'q' 退出 | 按 's' 保存 | 按 'c' 切换摄像头", 
+                   (10, height - 20),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, self.colors['text'], 1)
+    
+        return display_frame
+
+    def show_frame(self, frame):
+        """显示帧"""
+        cv2.imshow(self.window_name, frame)
+
+    def close(self):
+        """关闭窗口"""
+        cv2.destroyAllWindows()
+
+# ========== 数据记录器 ==========
+class DataLogger:
+    """数据记录器"""
+
+    def __init__(self, logger):
+        self.logger = logger
+        self.detection_log = []
+        self.frame_log = []
+    
+        # 创建保存目录
+        if Config.SAVE_DETECTIONS:
+            os.makedirs(Config.SAVE_PATH, exist_ok=True)
+
+    def log_detection(self, frame_count, detections, tracking_info):
+        """记录检测结果"""
+        timestamp = time.time()
+    
+        log_entry = {
+            'timestamp': timestamp,
+            'frame_count': frame_count,
+            'detection_count': len(detections),
+            'detections': detections,
+            'tracking_info': tracking_info
+        }
+    
+        self.detection_log.append(log_entry)
+    
+        # 限制日志大小
+        if len(self.detection_log) > 1000:
+            self.detection_log = self.detection_log[-1000:]
+
+    def save_frame(self, frame, prefix="phone_frame"):
+        """保存当前帧"""
+        if not Config.SAVE_DETECTIONS:
+            return
+    
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"{prefix}_{timestamp}_{int(time.time())}.jpg"
+        filepath = os.path.join(Config.SAVE_PATH, filename)
+    
+        try:
+            cv2.imwrite(filepath, frame)
+            self.logger.log(f"已保存帧: {filepath}", "INFO")
+            return filepath
+        except Exception as e:
+            self.logger.log(f"保存帧失败: {e}", "ERROR")
+            return None
+
+    def save_detection_data(self):
+        """保存检测数据"""
+        if not Config.SAVE_DETECTIONS or not self.detection_log:
+            return
+    
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"phone_detection_data_{timestamp}.json"
+        filepath = os.path.join(Config.SAVE_PATH, filename)
+    
+        try:
+            with open(filepath, 'w') as f:
+                json.dump(self.detection_log, f, indent=2, default=str)
+            self.logger.log(f"检测数据已保存: {filepath}", "INFO")
+        except Exception as e:
+            self.logger.log(f"保存检测数据失败: {e}", "ERROR")
+
+    def save_statistics(self, stats, run_time):
+        """保存统计信息"""
+        if not Config.SAVE_DETECTIONS:
+            return
+    
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"phone_statistics_{timestamp}.json"
+        filepath = os.path.join(Config.SAVE_PATH, filename)
+    
+        statistics = {
+            'timestamp': timestamp,
+            'run_time_seconds': run_time,
+            'total_frames': stats['total_frames'],
+            'total_detections': stats['total_detections'],
+            'detection_rate': stats['detection_rate'],
+            'avg_detection_time_ms': stats['avg_detection_time_ms'],
+            'config': {
+                'model': Config.MODEL_NAME,
+                'confidence_threshold': Config.CONFIDENCE_THRESHOLD,
+                'frame_width': Config.FRAME_WIDTH,
+                'frame_height': Config.FRAME_HEIGHT,
+                'fps': Config.FPS
+            }
+        }
+    
+        try:
+            with open(filepath, 'w') as f:
+                json.dump(statistics, f, indent=2)
+            self.logger.log(f"统计信息已保存: {filepath}", "INFO")
+        except Exception as e:
+            self.logger.log(f"保存统计信息失败: {e}", "ERROR")
+
+# ========== 主系统 ==========
+class PhoneDetectionSystem:
+    """手机检测主系统"""
+
+    def __init__(self):
+        # 初始化组件
+        self.logger = Logger(Config.LOG_LEVEL)
+        self.camera = CameraManager(self.logger)
+        self.detector = PhoneDetector(self.logger)
+        self.tracker = PhoneTracker(self.logger)
+        self.visualizer = Visualizer(self.logger)
+        self.data_logger = DataLogger(self.logger)
+    
+        # 运行状态
+        self.running = False
+        self.frame_count = 0
+        self.fps = 0
+        self.fps_frames = 0
+        self.last_fps_time = time.time()
+        self.start_time = time.time()
+    
+        # 保存计时器
+        self.last_save_time = time.time()
+    
+        self.logger.log("手机检测系统初始化完成", "INFO")
+
+    def run(self):
+        """运行主循环"""
+        self.logger.log("=" * 60, "INFO")
+        self.logger.log("启动手机检测系统", "INFO")
+        self.logger.log("=" * 60, "INFO")
+        self.logger.log("操作说明:", "INFO")
+        self.logger.log("  q: 退出系统", "INFO")
+        self.logger.log("  s: 保存当前帧", "INFO")
+        self.logger.log("  c: 切换摄像头", "INFO")
+        self.logger.log("  d: 切换调试模式", "INFO")
+        self.logger.log("  +: 增加置信度阈值", "INFO")
+        self.logger.log("  -: 降低置信度阈值", "INFO")
+        self.logger.log("  1: 显示所有YOLO类别", "INFO")
+        self.logger.log("=" * 60, "INFO")
+    
+        # 打开摄像头
+        if not self.camera.open_camera(
+            Config.CAMERA_ID,
+            Config.FRAME_WIDTH,
+            Config.FRAME_HEIGHT,
+            Config.FPS
+        ):
+            self.logger.log("无法打开摄像头，系统退出", "ERROR")
+            return
+    
+        self.running = True
+    
+        try:
+            while self.running:
+                # 读取帧
+                frame = self.camera.read_frame()
+                if frame is None:
+                    self.logger.log("读取帧失败，跳过...", "WARNING")
+                    time.sleep(0.1)
+                    continue
+            
+                # 更新帧计数
+                self.frame_count += 1
+                self.fps_frames += 1
+            
+                # 更新FPS
+                self._update_fps()
+            
+                # 镜像翻转
+                if Config.FLIP_HORIZONTAL:
+                    frame = cv2.flip(frame, 1)
+            
+                # 检测手机
+                detections = self.detector.detect(frame)
+            
+                # 更新追踪
+                frame_center = (frame.shape[1] / 2, frame.shape[0] / 2)
+                tracked_phone = None
+                if Config.ENABLE_TRACKING:
+                    tracked_phone = self.tracker.update(detections, frame_center)
+            
+                # 记录数据
+                tracking_info = self.tracker.get_tracking_info()
+                self.data_logger.log_detection(self.frame_count, detections, tracking_info)
+            
+                # 绘制检测结果
+                display_frame = self.visualizer.draw_detections(frame, detections, tracked_phone)
+            
+                # 获取统计信息
+                stats = self.detector.get_statistics()
+            
+                # 添加信息叠加层
+                display_frame = self.visualizer.add_info_overlay(
+                    display_frame, stats, tracking_info, self.fps, self.frame_count
+                )
+            
+                # 显示图像
+                self.visualizer.show_frame(display_frame)
+            
+                # 处理键盘输入
+                self._handle_keyboard_input(display_frame)
+            
+                # 定期保存数据
+                self._check_auto_save()
+            
+                # 控制帧率
+                self._control_frame_rate()
+    
+        except KeyboardInterrupt:
+            self.logger.log("检测到Ctrl+C，正在退出...", "INFO")
+    
+        except Exception as e:
+            self.logger.log(f"运行时错误: {e}", "ERROR")
+            import traceback
+            traceback.print_exc()
+    
+        finally:
+            self.shutdown()
+
+    def _update_fps(self):
+        """更新FPS计算"""
+        current_time = time.time()
+        elapsed = current_time - self.last_fps_time
+    
+        if elapsed >= 1.0:  # 每秒更新一次
+            self.fps = self.fps_frames / elapsed
+            self.last_fps_time = current_time
+            self.fps_frames = 0
+
+    def _handle_keyboard_input(self, frame):
+        """处理键盘输入"""
+        key = cv2.waitKey(1) & 0xFF
+    
+        if key == ord('q'):
+            self.logger.log("用户请求退出", "INFO")
+            self.running = False
+    
+        elif key == ord('s'):
+            self._save_current_frame(frame)
+    
+        elif key == ord('c'):
+            self._switch_camera()
+    
+        elif key == ord('d'):
+            Config.DEBUG_MODE = not Config.DEBUG_MODE
+            self.logger.log(f"调试模式: {'开启' if Config.DEBUG_MODE else '关闭'}", "INFO")
+    
+        elif key == ord('+'):
+            Config.CONFIDENCE_THRESHOLD = min(0.9, Config.CONFIDENCE_THRESHOLD + 0.05)
+            self.detector.model.conf = Config.CONFIDENCE_THRESHOLD
+            self.logger.log(f"置信度阈值增加至: {Config.CONFIDENCE_THRESHOLD:.2f}", "INFO")
+    
+        elif key == ord('-'):
+            Config.CONFIDENCE_THRESHOLD = max(0.1, Config.CONFIDENCE_THRESHOLD - 0.05)
+            self.detector.model.conf = Config.CONFIDENCE_THRESHOLD
+            self.logger.log(f"置信度阈值降低至: {Config.CONFIDENCE_THRESHOLD:.2f}", "INFO")
+    
+        elif key == ord('1'):
+            self._show_all_classes()
+
+    def _show_all_classes(self):
+        """显示所有YOLO类别"""
+        if self.detector.class_names:
+            self.logger.log("YOLO模型的所有类别:", "INFO")
+            for idx, name in self.detector.class_names.items():
+                if idx in self.detector.phone_class_ids:
+                    self.logger.log(f"  {idx}: {name} [手机类别]", "INFO")
+                else:
+                    self.logger.log(f"  {idx}: {name}", "INFO")
+
+    def _save_current_frame(self, frame):
+        """保存当前帧"""
+        current_time = time.time()
+        if current_time - self.last_save_time > 1.0:  # 防抖
+            self.data_logger.save_frame(frame, "phone_manual")
+            self.last_save_time = current_time
+
+    def _switch_camera(self):
+        """切换摄像头"""
+        self.logger.log("切换摄像头...", "INFO")
+        self.camera.release()
+        time.sleep(1)
+    
+        # 切换到下一个摄像头
+        Config.CAMERA_ID = (Config.CAMERA_ID + 1) % 4
+    
+        if not self.camera.open_camera(
+            Config.CAMERA_ID,
+            Config.FRAME_WIDTH,
+            Config.FRAME_HEIGHT,
+            Config.FPS
+        ):
+            self.logger.log("无法打开新摄像头，恢复原摄像头", "WARNING")
+            Config.CAMERA_ID = (Config.CAMERA_ID - 1) % 4
+            self.camera.open_camera(
+                Config.CAMERA_ID,
+                Config.FRAME_WIDTH,
+                Config.FRAME_HEIGHT,
+                Config.FPS
+            )
+
+    def _check_auto_save(self):
+        """检查自动保存"""
+        current_time = time.time()
+        if current_time - self.last_save_time >= Config.SAVE_INTERVAL:
+            self.data_logger.save_detection_data()
+            self.last_save_time = current_time
+
+    def _control_frame_rate(self):
+        """控制帧率"""
+        if Config.FPS > 0:
+            target_frame_time = 1.0 / Config.FPS
+            elapsed = time.time() - self.last_fps_time
+        
+            if elapsed < target_frame_time:
+                time.sleep(target_frame_time - elapsed)
+
+    def shutdown(self):
+        """关闭系统"""
+        self.logger.log("正在关闭系统...", "INFO")
+    
+        self.running = False
+    
+        # 释放资源
+        self.camera.release()
+        self.visualizer.close()
+    
+        # 计算运行时间
+        run_time = time.time() - self.start_time
+    
+        # 保存数据
+        stats = self.detector.get_statistics()
+        self.data_logger.save_detection_data()
+        self.data_logger.save_statistics(stats, run_time)
+    
+        # 显示统计信息
+        self._show_statistics(stats, run_time)
+    
+        self.logger.log("系统关闭完成", "INFO")
+
+    def _show_statistics(self, stats, run_time):
+        """显示统计信息"""
+        print("\n" + "=" * 60)
+        print("手机识别系统 - 运行统计")
+        print("=" * 60)
+        print(f"运行时间: {run_time:.1f} 秒")
+        print(f"总帧数: {stats['total_frames']}")
+        print(f"总检测次数: {stats['total_detections']}")
+        print(f"检测率: {stats['detection_rate']*100:.1f}%")
+        print(f"平均检测时间: {stats['avg_detection_time_ms']:.1f} ms")
+        print(f"平均帧率: {self.fps:.1f} FPS")
+        print(f"配置: {Config.MODEL_NAME}, 置信度: {Config.CONFIDENCE_THRESHOLD}")
+        print(f"找到的手机类别: {self.detector.phone_class_ids}")
+        print("=" * 60)
+
+# ========== 测试函数 ==========
+def test_camera():
+    """测试摄像头功能"""
+    print("测试摄像头功能...")
+
+    logger = Logger("INFO")
+    camera = CameraManager(logger)
+
+    if camera.open_camera():
+        print("摄像头测试成功")
+    
+        # 显示几帧
+        for i in range(30):
+            frame = camera.read_frame()
+            if frame is not None:
+                cv2.imshow("Camera Test", frame)
+                if cv2.waitKey(1) & 0xFF == ord('q'):
+                    break
+    
+        cv2.destroyAllWindows()
+        camera.release()
+        print("摄像头测试完成")
+    else:
+        print("摄像头测试失败")
+
+def test_phone_detection():
+    """测试手机检测功能"""
+    print("测试手机检测功能...")
+
+    logger = Logger("INFO")
+    detector = PhoneDetector(logger)
+
+    # 创建测试图像
+    test_image = np.zeros((480, 640, 3), dtype=np.uint8)
+    test_image[:] = (100, 100, 100)
+
+    # 添加测试物体 - 模拟手机形状
+    cv2.rectangle(test_image, (150, 100), (350, 250), (0, 255, 0), -1)  # 手机主体
+    cv2.circle(test_image, (250, 200), 10, (255, 255, 255), -1)  # 摄像头
+
+    # 检测
+    detections = detector.detect(test_image)
+
+    print(f"检测到 {len(detections)} 个目标")
+    for i, det in enumerate(detections):
+        print(f"  目标{i+1}: {det['class_name']}, 置信度: {det['confidence']:.2f}")
+
+    # 可视化
+    for det in detections:
+        x1, y1, x2, y2 = map(int, det['bbox'])
+        cv2.rectangle(test_image, (x1, y1), (x2, y2), (0, 0, 255), 2)
+        cv2.putText(test_image, f"{det['class_name']}: {det['confidence']:.2f}",
+                   (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
+
+    cv2.imshow("Phone Detection Test", test_image)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+
+    print("手机检测测试完成")
+
+def test_yolo_classes():
+    """测试YOLO类别"""
+    print("测试YOLO类别...")
+
+    logger = Logger("INFO")
+
+    try:
+        # 直接测试YOLO模型
+        model = torch.hub.load('ultralytics/yolov5', 'yolov5n', pretrained=True)
+        print(f"YOLO模型类别数量: {len(model.names)}")
+        print("所有类别:")
+        for idx, name in model.names.items():
+            # 检查是否是手机相关
+            phone_keywords = ['cell phone', 'mobile phone', 'phone', 'smartphone', 'cellphone']
+            is_phone = any(keyword in name.lower() for keyword in phone_keywords)
+            mark = " [手机]" if is_phone else ""
+            print(f"  {idx}: {name}{mark}")
+    except Exception as e:
+        print(f"测试失败: {e}")
+
+# ========== 主入口 ==========
+def main():
+    """主入口函数"""
+    print("=" * 60)
+    print("树莓派手机识别系统")
+    print("=" * 60)
+    print("请选择操作:")
+    print("  1. 运行完整手机识别系统")
+    print("  2. 测试摄像头功能")
+    print("  3. 测试手机检测功能")
+    print("  4. 查看YOLO所有类别")
+    print("  5. 退出")
+    print("=" * 60)
+
+    try:
+        choice = input("请输入选项 (1-5): ").strip()
+    
+        if choice == '1':
+            # 运行完整系统
+            system = PhoneDetectionSystem()
+            system.run()
+    
+        elif choice == '2':
+            # 测试摄像头
+            test_camera()
+    
+        elif choice == '3':
+            # 测试手机检测
+            test_phone_detection()
+    
+        elif choice == '4':
+            # 查看YOLO类别
+            test_yolo_classes()
+    
+        elif choice == '5':
+            print("退出系统")
+    
+        else:
+            print("无效选项，请输入1-5之间的数字")
+
+    except KeyboardInterrupt:
+        print("\n程序被用户中断")
+
+    except Exception as e:
+        print(f"错误: {e}")
+        import traceback
+        traceback.print_exc()
+
+    finally:
+        print("\n程序结束")
+
+if __name__ == "__main__":
+    main()
+EOF
+```
+
+### 1.2 创建快速测试脚本
+
+```bash
+cat > test_phone_detection.py << 'EOF'
+#!/usr/bin/env python3
+"""
+手机识别快速测试脚本
+"""
+
+import cv2
+import torch
+import numpy as np
+import time
+
+print("手机识别快速测试")
+
+# 加载YOLOv5模型
+print("加载YOLOv5模型...")
+model = torch.hub.load('ultralytics/yolov5', 'yolov5n', pretrained=True)
+model.conf = 0.4  # 置信度阈值
+
+# 查找手机类别
+phone_class_ids = []
+for idx, name in model.names.items():
+    if 'cell phone' in name.lower() or 'mobile phone' in name.lower() or 'phone' in name.lower():
+        phone_class_ids.append(idx)
+        print(f"找到手机类别: {name} (ID: {idx})")
+
+if not phone_class_ids:
+    print("警告: 未找到手机类别，使用ID 67作为默认")
+    phone_class_ids = [67]
+
+# 打开摄像头
+cap = cv2.VideoCapture(0)
+if not cap.isOpened():
+    print("无法打开摄像头")
+    exit(1)
+
+cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+
+print("开始检测手机，按'q'退出")
+
+frame_count = 0
+detection_count = 0
+start_time = time.time()
+
+try:
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+    
+        frame_count += 1
+    
+        # 镜像翻转
+        frame = cv2.flip(frame, 1)
+    
+        # 检测
+        results = model(frame, size=320)
+        detections = results.pandas().xyxy[0]
+    
+        # 过滤手机检测
+        phone_detections = []
+        for _, det in detections.iterrows():
+            if det['class'] in phone_class_ids and det['confidence'] >= 0.4:
+                phone_detections.append(det)
+    
+        # 绘制检测结果
+        for det in phone_detections:
+            x1, y1, x2, y2 = map(int, [det['xmin'], det['ymin'], det['xmax'], det['ymax']])
+            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+            cv2.putText(frame, f"Phone: {det['confidence']:.2f}", 
+                       (x1, y1-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+            detection_count += 1
+    
+        # 计算FPS
+        elapsed = time.time() - start_time
+        fps = frame_count / elapsed if elapsed > 0 else 0
+    
+        # 显示信息
+        cv2.putText(frame, f"FPS: {fps:.1f}", (10, 30),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
+        cv2.putText(frame, f"Phones: {len(phone_detections)}", (10, 60),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
+    
+        cv2.imshow('Phone Detection Test', frame)
+    
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+
+except KeyboardInterrupt:
+    pass
+
+finally:
+    cap.release()
+    cv2.destroyAllWindows()
+
+    print(f"\n测试完成!")
+    print(f"总帧数: {frame_count}")
+    print(f"检测到手机次数: {detection_count}")
+    print(f"平均FPS: {fps:.1f}")
+EOF
+
+chmod +x test_phone_detection.py
+```
+
+## 2. 创建优化配置文件
+
+```bash
+cat > phone_config.py << 'EOF'
+#!/usr/bin/env python3
+"""
+手机识别优化配置
+"""
+
+class PhoneConfig:
+    # 系统设置
+    DEBUG_MODE = True
+    LOG_LEVEL = "INFO"
+
+    # 摄像头设置
+    CAMERA_ID = 0
+    FRAME_WIDTH = 640
+    FRAME_HEIGHT = 480
+    FPS = 15
+    FLIP_HORIZONTAL = True
+
+    # 检测设置
+    MODEL_NAME = 'yolov5s'  # 使用更大的模型以提高准确性
+    CONFIDENCE_THRESHOLD = 0.35  # 手机检测需要更低的阈值
+    IOU_THRESHOLD = 0.4
+
+    # 手机特定设置
+    PHONE_CLASS_IDS = [67]  # YOLOv5中cell phone通常是67
+    MIN_PHONE_SIZE = 15     # 手机通常比人脸小
+    MAX_PHONE_SIZE = 400
+
+    # 图像增强设置（提高手机检测率）
+    ENHANCE_CONTRAST = True
+    BRIGHTNESS_FACTOR = 1.2
+    CONTRAST_FACTOR = 1.3
+
+    # 追踪设置
+    TRACKING_ENABLED = True
+    TRACKING_SMOOTHING = 0.3
+    MAX_TRACK_LOSS = 20
+
+    # 显示设置
+    DRAW_PHONE_BBOX = True
+    DRAW_TRACKING_PATH = True
+    SHOW_CONFIDENCE = True
+
+    # 保存设置
+    SAVE_DETECTIONS = True
+    SAVE_PATH = "phone_results"
+
+    @staticmethod
+    def enhance_image(image):
+        """增强图像以提高手机检测率"""
+        if not PhoneConfig.ENHANCE_CONTRAST:
+            return image
+    
+        # 转换为YUV颜色空间
+        yuv = cv2.cvtColor(image, cv2.COLOR_BGR2YUV)
+    
+        # 对亮度通道应用直方图均衡化
+        yuv[:,:,0] = cv2.equalizeHist(yuv[:,:,0])
+    
+        # 转换回BGR
+        enhanced = cv2.cvtColor(yuv, cv2.COLOR_YUV2BGR)
+    
+        # 调整亮度和对比度
+        enhanced = cv2.convertScaleAbs(enhanced, 
+                                      alpha=PhoneConfig.CONTRAST_FACTOR, 
+                                      beta=PhoneConfig.BRIGHTNESS_FACTOR * 10)
+    
+        return enhanced
+EOF
+```
+
+## 3. 创建手机检测训练脚本（可选）
+
+```bash
+cat > train_phone_detector.py << 'EOF'
+#!/usr/bin/env python3
+"""
+手机检测训练脚本 - 如果需要提高检测率，可以微调模型
+"""
+
+import torch
+import yaml
+import os
+
+print("准备手机检测训练...")
+
+# 创建数据集配置
+dataset_config = """
+# 手机检测数据集配置
+path: ./phone_dataset  # 数据集根目录
+train: images/train    # 训练图像
+val: images/val        # 验证图像
+test: images/test      # 测试图像
+
+# 类别数量
+nc: 1  # 只有一个类别：手机
+
+# 类别名称
+names: ['phone']
+
+# 下载选项（可选）
+download: None
+"""
+
+# 创建目录结构
+os.makedirs("phone_dataset/images/train", exist_ok=True)
+os.makedirs("phone_dataset/images/val", exist_ok=True)
+os.makedirs("phone_dataset/images/test", exist_ok=True)
+os.makedirs("phone_dataset/labels/train", exist_ok=True)
+os.makedirs("phone_dataset/labels/val", exist_ok=True)
+os.makedirs("phone_dataset/labels/test", exist_ok=True)
+
+# 保存数据集配置
+with open("phone_dataset.yaml", "w") as f:
+    f.write(dataset_config)
+
+print("数据集配置已创建: phone_dataset.yaml")
+print("\n接下来需要:")
+print("1. 收集手机图像放到 phone_dataset/images/ 目录下")
+print("2. 标注图像（可以使用LabelImg工具）")
+print("3. 运行训练命令: python train.py --img 640 --batch 16 --epochs 50 --data phone_dataset.yaml --weights yolov5s.pt")
+print("\n或者使用预训练模型进行微调:")
+print("python train.py --data phone_dataset.yaml --weights yolov5s.pt --epochs 30")
+EOF
+```
+
+## 4. 创建安装和运行脚本
+
+### 4.1 创建安装脚本
+
+```bash
+cat > install_phone_detection.sh << 'EOF'
+#!/bin/bash
+echo "=== 手机识别系统安装脚本 ==="
+
+# 1. 检查是否在正确的目录
+if [ ! -d "~/yolo/yolov5" ]; then
+    echo "错误: 请先运行人脸检测系统的安装脚本"
+    echo "运行: bash ~/install_yolo.sh"
+    exit 1
+fi
+
+cd ~/yolo/yolov5
+
+# 2. 激活虚拟环境
+source ~/yolo/venv/bin/activate
+
+# 3. 检查YOLOv5模型
+if [ ! -f "yolov5n.pt" ]; then
+    echo "下载YOLOv5模型..."
+    wget https://github.com/ultralytics/yolov5/releases/download/v6.0/yolov5n.pt
+    wget https://github.com/ultralytics/yolov5/releases/download/v6.0/yolov5s.pt
+fi
+
+# 4. 检查依赖
+echo "检查依赖..."
+pip install --upgrade torch torchvision
+pip install opencv-python numpy
+
+# 5. 创建手机检测目录
+mkdir -p phone_detections
+
+echo "安装完成!"
+echo "运行命令: python phone_detection_system.py"
+EOF
+
+chmod +x install_phone_detection.sh
+```
+
+### 4.2 创建运行脚本
+
+```bash
+cat > run_phone_detection.sh << 'EOF'
+#!/bin/bash
+echo "=== 手机识别系统 ==="
+echo "启动中..."
+
+cd ~/yolo/yolov5
+source ~/yolo/venv/bin/activate
+
+# 检查是否安装了必要的文件
+if [ ! -f "phone_detection_system.py" ]; then
+    echo "错误: phone_detection_system.py 不存在"
+    echo "请先创建手机识别系统文件"
+    exit 1
+fi
+
+# 运行系统
+python phone_detection_system.py
+EOF
+
+chmod +x run_phone_detection.sh
+```
+
+## 5. 完整操作指南
+
+### 5.1 首次运行前的准备
+
+```bash
+# 1. 确保已经安装了基础环境
+# 如果还没有安装，先运行：
+cd ~
+bash install_yolo.sh
+
+# 2. 进入项目目录
+cd ~/yolo/yolov5
+
+# 3. 激活虚拟环境
+source ~/yolo/venv/bin/activate
+
+# 4. 下载YOLOv5模型（如果还没有）
+if [ ! -f "yolov5n.pt" ]; then
+    wget https://github.com/ultralytics/yolov5/releases/download/v6.0/yolov5n.pt
+    wget https://github.com/ultralytics/yolov5/releases/download/v6.0/yolov5s.pt
+fi
+```
+
+### 5.2 运行手机识别系统
+
+```bash
+# 方法1：使用菜单运行
+python phone_detection_system.py
+
+# 方法2：直接运行完整系统
+python phone_detection_system.py
+# 然后选择选项1
+
+# 方法3：运行快速测试
+python test_phone_detection.py
+```
+
+### 5.3 系统操作说明
+
+当系统运行时，可以使用以下键盘控制：
+
+1. **q** - 退出系统
+2. **s** - 保存当前帧（图像保存到 `phone_detections/` 目录）
+3. **c** - 切换摄像头（在摄像头0-3之间切换）
+4. **d** - 切换调试模式
+5. **+** - 增加置信度阈值（减少误检）
+6. **-** - 降低置信度阈值（增加检测率）
+7. **1** - 显示所有YOLO类别
+
+### 5.4 提高手机检测率的技巧
+
+1. **调整摄像头角度和距离**
+   - 确保手机在画面中央
+   - 保持手机与摄像头距离适中（0.5-2米）
+   - 避免强光反射
+
+2. **调整系统参数**
+   - 降低 `CONFIDENCE_THRESHOLD`（0.3-0.4）
+   - 使用更大的模型 `yolov5s`
+   - 增加图像分辨率（如果性能允许）
+
+3. **环境优化**
+   - 保持良好光照
+   - 使用纯色背景
+   - 避免复杂背景
+
+### 5.5 查看和保存数据
+
+```bash
+# 查看保存的检测结果
+ls -lh phone_detections/
+
+# 查看检测日志
+cat phone_detections/phone_detection_data_*.json | python -m json.tool
+
+# 查看统计信息
+cat phone_detections/phone_statistics_*.json | python -m json.tool
+```
+
+## 6. 故障排除
+
+### 6.1 手机检测不到的问题
+
+```bash
+# 1. 检查YOLO是否包含手机类别
+python phone_detection_system.py
+# 选择选项4：查看YOLO所有类别
+
+# 2. 降低置信度阈值
+# 修改 phone_detection_system.py 中的 CONFIDENCE_THRESHOLD = 0.3
+
+# 3. 使用更大的模型
+# 修改 Config.MODEL_NAME = 'yolov5s'
+
+# 4. 增加图像预处理
+# 在检测前增加图像增强步骤
+```
+
+### 6.2 性能优化
+
+```bash
+# 1. 降低分辨率提高速度
+# 修改 Config.FRAME_WIDTH = 320, Config.FRAME_HEIGHT = 240
+
+# 2. 降低检测频率
+# 可以在代码中添加检测间隔，如每2帧检测一次
+
+# 3. 关闭追踪功能
+# 修改 Config.ENABLE_TRACKING = False
+
+# 4. 关闭可视化效果
+# 修改 Config.SHOW_INFO = False, Config.SHOW_BBOX = False
+```
+
+## 7. 完整操作示例
+
+### 示例1：首次运行手机识别
+
+```bash
+# 步骤1：进入目录
+cd ~/yolo/yolov5
+
+# 步骤2：激活环境
+source ~/yolo/venv/bin/activate
+
+# 步骤3：运行快速测试
+python test_phone_detection.py
+# 拿一个手机在摄像头前测试
+# 按'q'退出
+
+# 步骤4：运行完整系统
+python phone_detection_system.py
+# 选择选项1：运行完整手机识别系统
+# 测试手机检测，按's'保存几张图片
+# 按'q'退出
+```
+
+### 示例2：调整参数优化检测
+
+```bash
+# 1. 编辑配置文件
+nano phone_detection_system.py
+# 修改以下参数：
+#   CONFIDENCE_THRESHOLD = 0.3  # 降低阈值
+#   MODEL_NAME = 'yolov5s'      # 使用更大的模型
+# 保存并退出
+
+# 2. 重新运行系统
+python phone_detection_system.py
+```
+
+### 示例3：批量测试不同手机
+
+```bash
+# 1. 运行系统并保存数据
+python phone_detection_system.py
+# 对不同型号的手机进行测试
+# 每测试一个手机按's'保存
+# 测试完成后按'q'退出
+
+# 2. 分析检测结果
+cd phone_detections
+ls -l *.jpg
+# 查看哪些手机被正确检测，哪些没有
+```
+
+## 8. 扩展功能
+
+### 8.1 添加手机计数功能
+
+在 `phone_detection_system.py` 中添加：
+
+```python
+# 在PhoneDetectionSystem类中添加
+self.phone_count_history = []
+self.total_unique_phones = 0
+
+# 在每次检测后更新计数
+if detections:
+    current_count = len(detections)
+    self.phone_count_history.append(current_count)
+    if len(self.phone_count_history) > 100:
+        self.phone_count_history = self.phone_count_history[-100:]
+```
+
+### 8.2 添加声音提示
+
+```python
+# 检测到手机时播放声音
+import pygame
+
+def play_detection_sound():
+    pygame.mixer.init()
+    pygame.mixer.music.load("beep.mp3")  # 需要准备一个提示音
+    pygame.mixer.music.play()
+```
+
+## 总结
+
+这个手机识别系统已经配置完成，包含以下功能：
+
+1. **手机检测**：使用YOLOv5检测手机
+2. **追踪功能**：跟踪第一个检测到的手机
+3. **可视化界面**：实时显示检测结果
+4. **数据保存**：自动保存检测结果和统计信息
+5. **用户交互**：支持键盘控制
+
+每次运行只需3个步骤：
+```bash
+cd ~/yolo/yolov5
+source ~/yolo/venv/bin/activate
+python phone_detection_system.py
+```
+
+如果检测率不够高，可以：
+1. 降低置信度阈值（按'-'键）
+2. 使用更大的模型（修改Config.MODEL_NAME）
+3. 优化光照和背景环境
+4. 调整摄像头角度和距离
+
+系统会自动保存检测结果到 `phone_detections/` 目录，方便后续分析。这个代码注释，print出来的反应还有教程改成英文，注意不要更改代码其它部分！要能用！
